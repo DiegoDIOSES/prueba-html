@@ -1,0 +1,9 @@
+{
+  "name": "backlog-crm-sokso",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Backlog CRM Sokso — panel de tareas con API en Vercel y Google Sheets",
+  "dependencies": {
+    "googleapis": "^140.0.0"
+  }
+}
