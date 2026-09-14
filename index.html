@@ -352,7 +352,8 @@
     </div>
   </div>
 
-  <div class="saved-note" id="savedNote"></div>
+  <div class="saved-note" id="savedNote" role="status" aria-live="polite"></div>
+  <button class="btn-ghost" id="refreshTasks">Actualizar tareas</button>
 </div>
 
 <!-- Modal -->
@@ -476,7 +477,14 @@
 </div>
 
 <script>
-const STORAGE_KEY = 'backlog-crm-tasks';
+let requiresEditorKey = true;
+let editorKey = '';
+let busy = false;
+let loading = false;
+let loaded = false;
+let editingVersion = '';
+let draftId = '';
+let readGeneration = 0;
 let tasks = [];
 let editingId = null;
 
@@ -513,23 +521,63 @@ function isOverdue(t) {
   return diff <= 2;
 }
 
-async function loadTasks() {
-  try {
-    const result = await window.storage.get(STORAGE_KEY, true);
-    tasks = result && result.value ? JSON.parse(result.value) : [];
-  } catch (e) {
-    tasks = [];
+async function request(payload) {
+  const options = {cache:'no-store', signal:AbortSignal.timeout(35000)};
+  if (payload) {
+    if (requiresEditorKey && !editorKey) {
+      const key = prompt('Ingresa la clave de edición del equipo:');
+      if (!key) throw new Error('Guardado cancelado. No se enviaron cambios.');
+      editorKey = key;
+    }
+    options.method = 'POST';
+    options.headers = {'Content-Type':'application/json','X-Editor-Key':editorKey};
+    options.body = JSON.stringify(payload);
   }
-  render();
+  const response = await fetch('/api/tasks', options);
+  let data;
+  try { data = await response.json(); }
+  catch { throw new Error('La conexión no está disponible. Comprueba la configuración de Vercel.'); }
+  if (!response.ok) {
+    if (response.status === 401) editorKey = '';
+    throw new Error(data.error || 'No se pudo completar la operación.');
+  }
+  if (!Array.isArray(data.tasks)) throw new Error('Respuesta inválida de Google Sheets.');
+  requiresEditorKey = data.requiresEditorKey;
+  return data.tasks;
 }
-
-async function saveTasks() {
+async function loadTasks() {
+  if (busy || loading) return;
+  loading = true;
+  const generation = readGeneration;
+  if (!loaded) savedNote.textContent = 'Cargando tareas de Google Sheets…';
   try {
-    await window.storage.set(STORAGE_KEY, JSON.stringify(tasks), true);
-    savedNote.textContent = 'Guardado · visible para todo el equipo';
-    setTimeout(() => { savedNote.textContent = ''; }, 2500);
+    const result = await request();
+    if (generation !== readGeneration) return;
+    tasks = result; loaded = true; render();
+    savedNote.textContent = 'Sincronizado con Google Sheets · ' + new Date().toLocaleTimeString();
   } catch (e) {
-    savedNote.textContent = 'No se pudo guardar. Intenta de nuevo.';
+    if (generation !== readGeneration) return;
+    savedNote.textContent = loaded ? 'No se pudo actualizar. Se muestran los últimos datos recibidos.' : e.message;
+  } finally { loading = false; }
+}
+async function mutate(payload) {
+  if (busy) return false;
+  busy = true; readGeneration++;
+  form.querySelectorAll('input,select,textarea,button').forEach(el => el.disabled = true);
+  document.getElementById('openAdd').disabled = true;
+  savedNote.textContent = 'Guardando en Google Sheets…';
+  try {
+    tasks = await request(payload); loaded = true; render();
+    savedNote.textContent = 'Guardado en Google Sheets · visible para todos';
+    return true;
+  } catch (e) {
+    savedNote.textContent = e.message;
+    alert(e.message);
+    return false;
+  } finally {
+    busy = false;
+    form.querySelectorAll('input,select,textarea,button').forEach(el => el.disabled = false);
+    document.getElementById('openAdd').disabled = false;
   }
 }
 
@@ -583,7 +631,7 @@ function render() {
 
   if (list.length === 0) {
     tbody.innerHTML = '';
-    empty.style.display = 'block';
+    empty.style.display = loaded ? 'block' : 'none';
     return;
   }
   empty.style.display = 'none';
@@ -597,15 +645,15 @@ function render() {
       <td data-label="Módulo">${escapeHtml(t.modulo || '—')}</td>
       <td data-label="Tipo">${escapeHtml(t.tipo || '—')}</td>
       <td data-label="Responsable">${escapeHtml(t.responsable || '—')}</td>
-      <td data-label="Prioridad"><span class="badge" style="${badgeClass('prioridad', t.prioridad)}">${t.prioridad || '—'}</span></td>
-      <td data-label="Estado"><span class="badge" style="${badgeClass('estado', t.estado)}">${t.estado || '—'}</span></td>
-      <td data-label="Límite" class="${isOverdue(t) ? 'overdue' : ''}">${fmtDate(t.flimite)}</td>
-      <td data-label="Horas">${t.hest || 0} / ${t.hreal || 0}</td>
+      <td data-label="Prioridad"><span class="badge" style="${badgeClass('prioridad', t.prioridad)}">${escapeHtml(t.prioridad || '—')}</span></td>
+      <td data-label="Estado"><span class="badge" style="${badgeClass('estado', t.estado)}">${escapeHtml(t.estado || '—')}</span></td>
+      <td data-label="Límite" class="${isOverdue(t) ? 'overdue' : ''}">${escapeHtml(fmtDate(t.flimite))}</td>
+      <td data-label="Horas">${Number(t.hest) || 0} / ${Number(t.hreal) || 0}</td>
       <td data-label="Comentarios">${escapeHtml(t.comentarios || '—')}</td>
       <td data-label="">
         <div class="row-actions">
-          <button class="btn-ghost" onclick="editTask('${t.id}')">Editar</button>
-          <button class="btn-ghost" onclick="deleteTask('${t.id}')">Eliminar</button>
+          <button class="btn-ghost" data-edit="${escapeHtml(t.id)}">Editar</button>
+          <button class="btn-ghost" data-delete="${escapeHtml(t.id)}">Eliminar</button>
         </div>
       </td>
     </tr>
@@ -614,15 +662,18 @@ function render() {
 
 function escapeHtml(s) {
   if (!s) return '';
-  return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 
 function openModal(task) {
+  if (busy) return;
+  editingVersion = task ? task.version : '';
+  draftId = task ? task.id : crypto.randomUUID();
   editingId = task ? task.id : null;
   document.getElementById('modalTitle').textContent = task ? 'Editar tarea' : 'Nueva tarea';
   document.getElementById('f_tarea').value = task ? task.tarea : '';
   document.getElementById('f_desc').value = task ? task.desc : '';
-  document.getElementById('f_modulo').value = task ? task.modulo : 'CRM Softr';
+  document.getElementById('f_modulo').value = task ? task.modulo : 'Inicio usuarios';
   document.getElementById('f_tipo').value = task ? task.tipo : 'Mejora';
   document.getElementById('f_resp').value = task ? task.responsable : 'Diego';
   document.getElementById('f_prior').value = task ? task.prioridad : 'Media';
@@ -637,6 +688,7 @@ function openModal(task) {
 }
 
 function closeModal() {
+  if (busy) return;
   overlay.classList.remove('open');
   form.reset();
   editingId = null;
@@ -647,21 +699,26 @@ window.editTask = function(id) {
   if (t) openModal(t);
 };
 
-window.deleteTask = function(id) {
-  if (!confirm('¿Eliminar esta tarea?')) return;
-  tasks = tasks.filter(x => x.id !== id);
-  saveTasks();
-  render();
+window.deleteTask = async function(id) {
+  if (busy || !confirm('¿Eliminar esta tarea para todos los usuarios?')) return;
+  const task = tasks.find(t => t.id === id);
+  if (task) await mutate({action:'delete', id, version:task.version});
 };
+document.getElementById('tableBody').addEventListener('click', e => {
+  const button = e.target.closest('button');
+  if (button?.dataset.edit) editTask(button.dataset.edit);
+  if (button?.dataset.delete) deleteTask(button.dataset.delete);
+});
+document.getElementById('refreshTasks').addEventListener('click', loadTasks);
 
 document.getElementById('openAdd').addEventListener('click', () => openModal(null));
 document.getElementById('cancelBtn').addEventListener('click', closeModal);
 overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal(); });
 
-form.addEventListener('submit', (e) => {
+form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const data = {
-    id: editingId || ('t' + Date.now()),
+    id: draftId,
     tarea: document.getElementById('f_tarea').value.trim(),
     desc: document.getElementById('f_desc').value.trim(),
     modulo: document.getElementById('f_modulo').value,
@@ -678,14 +735,7 @@ form.addEventListener('submit', (e) => {
   };
   if (!data.tarea) return;
 
-  if (editingId) {
-    tasks = tasks.map(t => t.id === editingId ? data : t);
-  } else {
-    tasks.push(data);
-  }
-  saveTasks();
-  render();
-  closeModal();
+  if (await mutate({action:'save', task:data, version:editingVersion})) closeModal();
 });
 
 ['filterResponsable','filterEstado','filterPrioridad','searchBox'].forEach(id => {
@@ -700,6 +750,8 @@ document.getElementById('clearFilters').addEventListener('click', () => {
 });
 
 loadTasks();
+setInterval(() => { if (!document.hidden) loadTasks(); }, 15000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) loadTasks(); });
 </script>
 
 </body>
