@@ -495,7 +495,8 @@
         </div>
         <div class="field">
           <label>Módulo / Área</label>
-          <select id="f_modulo">
+          <select id="f_modulo" required>
+            <option value="" disabled hidden>Selecciona...</option>
             <optgroup label="Visual">
               <option>Inicio usuarios</option>
               <option>Campaña Recuperación</option>
@@ -532,7 +533,8 @@
         </div>
         <div class="field">
           <label>Tipo de tarea</label>
-          <select id="f_tipo">
+          <select id="f_tipo" required>
+            <option value="" disabled hidden>Selecciona...</option>
             <option>Bug</option>
             <option>Mejora</option>
             <option>Nueva funcionalidad</option>
@@ -542,7 +544,8 @@
         </div>
         <div class="field">
           <label>Responsable</label>
-          <select id="f_resp">
+          <select id="f_resp" required>
+            <option value="" disabled hidden>Selecciona...</option>
             <option>Diego</option>
             <option>Edith</option>
             <option>Paula</option>
@@ -550,7 +553,8 @@
         </div>
         <div class="field">
           <label>Prioridad</label>
-          <select id="f_prior">
+          <select id="f_prior" required>
+            <option value="" disabled hidden>Selecciona...</option>
             <option>Alta</option>
             <option>Media</option>
             <option>Baja</option>
@@ -558,7 +562,8 @@
         </div>
         <div class="field">
           <label>Estado</label>
-          <select id="f_estado">
+          <select id="f_estado" required>
+            <option value="" disabled hidden>Selecciona...</option>
             <option>Por hacer</option>
             <option>En progreso</option>
             <option>En revisión</option>
@@ -832,11 +837,11 @@ function openModal(task) {
   document.getElementById('modalTitle').textContent = task ? 'Editar tarea' : 'Nueva tarea';
   document.getElementById('f_tarea').value = task ? task.tarea : '';
   document.getElementById('f_desc').value = task ? task.desc : '';
-  document.getElementById('f_modulo').value = task ? task.modulo : 'Inicio usuarios';
-  document.getElementById('f_tipo').value = task ? task.tipo : 'Mejora';
-  document.getElementById('f_resp').value = task ? task.responsable : 'Diego';
-  document.getElementById('f_prior').value = task ? task.prioridad : 'Media';
-  document.getElementById('f_estado').value = task ? task.estado : 'Por hacer';
+  document.getElementById('f_modulo').value = task ? task.modulo : '';
+  document.getElementById('f_tipo').value = task ? task.tipo : '';
+  document.getElementById('f_resp').value = task ? task.responsable : '';
+  document.getElementById('f_prior').value = task ? task.prioridad : '';
+  document.getElementById('f_estado').value = task ? task.estado : '';
   document.getElementById('f_sprint').value = task ? task.sprint : '';
   document.getElementById('f_fsolicitud').value = task ? task.fsolicitud : '';
   document.getElementById('f_flimite').value = task ? task.flimite : '';
