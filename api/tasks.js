@@ -98,10 +98,29 @@ async function readRows(sheets, spreadsheetId) {
     .filter((x) => x.task.id);
 }
 
+// Nombres asignables por defecto. El equipo puede crecer: cualquier nombre con
+// formato razonable es aceptado (ver validación de "responsable" más abajo),
+// esta lista solo documenta el equipo base.
+const KNOWN_TEAM = ['Diego', 'Edith', 'Paula'];
+const NAME_PATTERN = /^[\p{L}\p{M}0-9 .'-]{1,60}$/u;
+
+function validateResponsable(raw) {
+  const value = String(raw == null ? '' : raw).trim();
+  if (!value) return '';
+  const names = value.split(',').map((s) => s.trim()).filter(Boolean);
+  if (names.length > 10) fail('Se pueden asignar como máximo 10 personas por tarea.', 400);
+  names.forEach((n) => {
+    if (!NAME_PATTERN.test(n)) fail('Nombre de responsable inválido: ' + n, 400);
+  });
+  // Normaliza duplicados y el formato de separación.
+  return Array.from(new Set(names)).join(', ');
+}
+
 function validate(input) {
   if (!input || typeof input !== 'object') fail('Tarea inválida.', 400);
   const t = {};
   FIELDS.slice(0, 14).forEach((f) => {
+    if (f === 'responsable') return; // se valida aparte, admite lista separada por comas
     if (['hest', 'hreal'].includes(f)) {
       t[f] = Number(input[f] || 0);
       if (!Number.isFinite(t[f]) || t[f] < 0 || t[f] > 100000) fail('Horas inválidas.', 400);
@@ -110,9 +129,10 @@ function validate(input) {
       if (t[f].length > (['desc', 'comentarios'].includes(f) ? 5000 : 300)) fail('Texto demasiado largo.', 400);
     }
   });
+  t.responsable = validateResponsable(input.responsable);
+  if (t.responsable.length > 300) fail('Texto demasiado largo.', 400);
   if (!/^[a-zA-Z0-9_-]{1,80}$/.test(t.id) || !t.tarea) fail('Falta el nombre o identificador de la tarea.', 400);
   const enums = {
-    responsable: ['Diego', 'Edith', 'Paula'],
     prioridad: ['Alta', 'Media', 'Baja'],
     estado: ['Por hacer', 'En progreso', 'En revisión', 'Bloqueado', 'Hecho'],
     tipo: ['Bug', 'Mejora', 'Nueva funcionalidad', 'Consulta / Soporte', 'Reunión'],
