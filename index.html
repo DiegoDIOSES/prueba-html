@@ -269,6 +269,89 @@
 
   .overdue { color: var(--alta-fg); font-weight: 700; }
 
+  /* --- Edición inline (ClickUp/Jira style) --- */
+  .editable-cell {
+    cursor: pointer;
+    border-radius: 8px;
+    padding: 3px 5px;
+    margin: -3px -5px;
+    transition: background 0.12s ease, box-shadow 0.12s ease;
+  }
+  .editable-cell:hover {
+    background: var(--purple-tint);
+    box-shadow: inset 0 0 0 1px rgba(131,49,167,0.35);
+  }
+  .editable-cell .ph { color: var(--ink-soft); font-style: italic; }
+  .inline-editor {
+    width: 100%;
+    border: 1px solid var(--purple);
+    border-radius: 8px;
+    padding: 6px 8px;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--ink);
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(131,49,167,0.14);
+  }
+  .inline-editor:focus { outline: none; }
+  select.inline-editor { cursor: pointer; }
+  textarea.inline-editor { min-height: 46px; resize: vertical; }
+  .hrs-cell { display: inline-block; min-width: 22px; text-align: center; }
+
+  /* --- Asignación de personas --- */
+  .avatar-group { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .avatar {
+    width: 24px; height: 24px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: #fff; flex-shrink: 0;
+    box-shadow: 0 0 0 2px #fff;
+  }
+  .avatar-add {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 1.5px dashed var(--line);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--ink-soft); font-size: 14px; line-height: 1;
+    cursor: pointer; background: transparent; flex-shrink: 0;
+  }
+  .avatar-add:hover { border-color: var(--purple); color: var(--purple); background: var(--purple-tint); }
+  .assign-cell { cursor: pointer; border-radius: 8px; padding: 3px 5px; margin: -3px -5px; }
+  .assign-cell:hover { background: var(--purple-tint); }
+
+  .assign-pop {
+    position: fixed;
+    z-index: 60;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
+    padding: 8px;
+    min-width: 190px;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+  .assign-opt {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 13px;
+  }
+  .assign-opt:hover { background: var(--purple-tint); }
+  .assign-opt input[type="checkbox"] { accent-color: var(--purple); }
+  .assign-add-row { border-top: 1px solid var(--line-soft); margin-top: 4px; padding-top: 6px; }
+  .assign-add-input {
+    width: 100%; border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 8px; font-size: 12px; font-family: inherit;
+  }
+  .assign-add-input:focus { outline: none; border-color: var(--purple); }
+
+  .resp-checks { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 2px; }
+  .resp-check {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12.5px; background: var(--canvas);
+    border: 1px solid var(--line); border-radius: 20px;
+    padding: 6px 11px; cursor: pointer;
+  }
+  .resp-check:has(input:checked) { border-color: var(--purple); background: var(--purple-tint); color: var(--purple-deep); }
+  .resp-check input { accent-color: var(--purple); }
+
   /* Modal */
   .overlay {
     position: fixed; inset: 0;
@@ -522,7 +605,6 @@
               <option>Leads</option>
               <option>Estrellas</option>
               <option>Tipos Tarea</option>
-              <option>Tareas</option>
               <option>Eventos</option>
               <option>HISTORIAL ESTRELLAS</option>
               <option>AGENDA GERENTES DE NEGOCIO</option>
@@ -542,14 +624,13 @@
             <option>Reunión</option>
           </select>
         </div>
-        <div class="field">
-          <label>Responsable</label>
-          <select id="f_resp" required>
-            <option value="" disabled hidden>Selecciona...</option>
-            <option>Diego</option>
-            <option>Edith</option>
-            <option>Paula</option>
-          </select>
+        <div class="field full">
+          <label>Responsable(s)</label>
+          <div class="resp-checks" id="f_resp_group">
+            <label class="resp-check"><input type="checkbox" value="Diego"> Diego</label>
+            <label class="resp-check"><input type="checkbox" value="Edith"> Edith</label>
+            <label class="resp-check"><input type="checkbox" value="Paula"> Paula</label>
+          </div>
         </div>
         <div class="field">
           <label>Prioridad</label>
@@ -616,11 +697,39 @@ let readGeneration = 0;
 let tasks = [];
 let editingId = null;
 let lastSavedId = null;
+let activeEditor = null;
 
 const overlay = document.getElementById('overlay');
 const form = document.getElementById('taskForm');
 const savedNote = document.getElementById('savedNote');
 const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const TEAM = ['Diego', 'Edith', 'Paula'];
+const PALETTE = ['#8331A7','#35459E','#3C7A46','#9A6B12','#B23A3A','#5B4E75','#0E7C86','#A6461D'];
+
+const MODULO_OPTIONS = [
+  'Inicio usuarios','Campaña Recuperación','Lista de Estrellas- Recuperación','Nuevo_Perfil','MI AGENDA',
+  'RANKING GENERAL','Estrellas-Directoras','RESUMEN POR REGION','DETALLE DE DIRECTORAS','PANEL DIRECTORAS',
+  'Detalle de Leads','Tareas','Tareas detalles','Lista Leads','Lista Estrellas','Detalle de estrellas','Perfil',
+  'Formulario','Usuarios Directoras','Leads','Estrellas','Tipos Tarea','Eventos','HISTORIAL ESTRELLAS',
+  'AGENDA GERENTES DE NEGOCIO','CAMPAÑA DE RECUPERACIÓN','Historial de recuperación'
+];
+const TIPO_OPTIONS = ['Bug','Mejora','Nueva funcionalidad','Consulta / Soporte','Reunión'];
+const PRIORIDAD_OPTIONS = ['Alta','Media','Baja'];
+const ESTADO_OPTIONS = ['Por hacer','En progreso','En revisión','Bloqueado','Hecho'];
+
+const FIELD_CONFIG = {
+  tarea: { type: 'text' },
+  desc: { type: 'textarea' },
+  modulo: { type: 'select', options: MODULO_OPTIONS },
+  tipo: { type: 'select', options: TIPO_OPTIONS },
+  prioridad: { type: 'select', options: PRIORIDAD_OPTIONS },
+  estado: { type: 'select', options: ESTADO_OPTIONS },
+  flimite: { type: 'date' },
+  hest: { type: 'number' },
+  hreal: { type: 'number' },
+  comentarios: { type: 'textarea' },
+};
 
 function badgeClass(kind, value) {
   const map = {
@@ -653,6 +762,22 @@ function isOverdue(t) {
   const due = new Date(t.flimite + 'T00:00:00');
   const diff = (due - today) / 86400000;
   return diff <= 2;
+}
+
+function initials(name) {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+function colorForName(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return PALETTE[Math.abs(hash) % PALETTE.length];
+}
+
+function peopleList(t) {
+  return (t.responsable || '').split(',').map(s => s.trim()).filter(Boolean);
 }
 
 function animateValue(el, fromNum, toValue) {
@@ -726,6 +851,7 @@ async function mutate(payload) {
   } catch (e) {
     savedNote.textContent = e.message;
     alert(e.message);
+    render();
     return false;
   } finally {
     busy = false;
@@ -746,7 +872,7 @@ function getFilters() {
 function filteredTasks() {
   const f = getFilters();
   return tasks.filter(t => {
-    if (f.resp && t.responsable !== f.resp) return false;
+    if (f.resp && !peopleList(t).includes(f.resp)) return false;
     if (f.estado && t.estado !== f.estado) return false;
     if (f.prior && t.prioridad !== f.prior) return false;
     if (f.search) {
@@ -786,6 +912,7 @@ function renderKPIs() {
 }
 
 function render() {
+  closeInlineEditor();
   renderKPIs();
   const list = filteredTasks();
   const tbody = document.getElementById('tableBody');
@@ -803,17 +930,30 @@ function render() {
   tbody.innerHTML = list.map(t => `
     <tr${t.id === flashId ? ' class="just-saved"' : ''} style="--accent:${priorityAccent(t.prioridad)}">
       <td data-label="Tarea">
-        <div class="task-name">${escapeHtml(t.tarea)}</div>
-        ${t.desc ? `<div class="task-desc">${escapeHtml(t.desc)}</div>` : ''}
+        <div class="editable-cell" data-field="tarea" data-id="${escapeHtml(t.id)}">
+          <div class="task-name">${escapeHtml(t.tarea)}</div>
+        </div>
+        <div class="editable-cell" data-field="desc" data-id="${escapeHtml(t.id)}">
+          <div class="task-desc">${t.desc ? escapeHtml(t.desc) : '<span class="ph">Agregar descripción…</span>'}</div>
+        </div>
       </td>
-      <td data-label="Módulo">${escapeHtml(t.modulo || '—')}</td>
-      <td data-label="Tipo">${escapeHtml(t.tipo || '—')}</td>
-      <td data-label="Responsable">${escapeHtml(t.responsable || '—')}</td>
-      <td data-label="Prioridad"><span class="badge" style="${badgeClass('prioridad', t.prioridad)}">${escapeHtml(t.prioridad || '—')}</span></td>
-      <td data-label="Estado"><span class="badge" style="${badgeClass('estado', t.estado)}">${escapeHtml(t.estado || '—')}</span></td>
-      <td data-label="Límite" class="${isOverdue(t) ? 'overdue' : ''}">${escapeHtml(fmtDate(t.flimite))}</td>
-      <td data-label="Horas">${Number(t.hest) || 0} / ${Number(t.hreal) || 0}</td>
-      <td data-label="Comentarios">${escapeHtml(t.comentarios || '—')}</td>
+      <td data-label="Módulo" class="editable-cell" data-field="modulo" data-id="${escapeHtml(t.id)}">${t.modulo ? escapeHtml(t.modulo) : '<span class="ph">—</span>'}</td>
+      <td data-label="Tipo" class="editable-cell" data-field="tipo" data-id="${escapeHtml(t.id)}">${t.tipo ? escapeHtml(t.tipo) : '<span class="ph">—</span>'}</td>
+      <td data-label="Responsable" class="assign-cell" data-assign="${escapeHtml(t.id)}">
+        <div class="avatar-group">
+          ${peopleList(t).map(p => `<span class="avatar" title="${escapeHtml(p)}" style="background:${colorForName(p)}">${initials(p)}</span>`).join('')}
+          <span class="avatar-add" title="Asignar personas">+</span>
+        </div>
+      </td>
+      <td data-label="Prioridad" class="editable-cell" data-field="prioridad" data-id="${escapeHtml(t.id)}"><span class="badge" style="${badgeClass('prioridad', t.prioridad)}">${escapeHtml(t.prioridad || '—')}</span></td>
+      <td data-label="Estado" class="editable-cell" data-field="estado" data-id="${escapeHtml(t.id)}"><span class="badge" style="${badgeClass('estado', t.estado)}">${escapeHtml(t.estado || '—')}</span></td>
+      <td data-label="Límite" class="editable-cell ${isOverdue(t) ? 'overdue' : ''}" data-field="flimite" data-id="${escapeHtml(t.id)}">${escapeHtml(fmtDate(t.flimite))}</td>
+      <td data-label="Horas (est/real)">
+        <span class="editable-cell hrs-cell" data-field="hest" data-id="${escapeHtml(t.id)}">${Number(t.hest) || 0}</span>
+        <span> / </span>
+        <span class="editable-cell hrs-cell" data-field="hreal" data-id="${escapeHtml(t.id)}">${Number(t.hreal) || 0}</span>
+      </td>
+      <td data-label="Comentarios" class="editable-cell" data-field="comentarios" data-id="${escapeHtml(t.id)}">${t.comentarios ? escapeHtml(t.comentarios) : '<span class="ph">—</span>'}</td>
       <td data-label="">
         <div class="row-actions">
           <button class="btn-ghost" data-edit="${escapeHtml(t.id)}">Editar</button>
@@ -829,6 +969,149 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 
+/* --- Edición inline genérica de celdas --- */
+function closeInlineEditor() {
+  if (activeEditor) { const cb = activeEditor.cleanup; activeEditor = null; cb?.(); }
+}
+
+function startFieldEdit(cell, id, field) {
+  if (busy) return;
+  closeInlineEditor();
+  const t = tasks.find(x => x.id === id);
+  const cfg = FIELD_CONFIG[field];
+  if (!t || !cfg) return;
+
+  let input;
+  if (cfg.type === 'select') {
+    input = document.createElement('select');
+    input.className = 'inline-editor';
+    const blank = document.createElement('option');
+    blank.value = ''; blank.textContent = 'Selecciona...'; blank.disabled = true;
+    if (!t[field]) blank.selected = true;
+    input.appendChild(blank);
+    cfg.options.forEach(opt => {
+      const o = document.createElement('option');
+      o.value = opt; o.textContent = opt;
+      if (opt === t[field]) o.selected = true;
+      input.appendChild(o);
+    });
+  } else if (cfg.type === 'date') {
+    input = document.createElement('input');
+    input.type = 'date'; input.className = 'inline-editor'; input.value = t[field] || '';
+  } else if (cfg.type === 'number') {
+    input = document.createElement('input');
+    input.type = 'number'; input.step = '0.5'; input.min = '0';
+    input.className = 'inline-editor'; input.value = t[field] || 0;
+  } else if (cfg.type === 'textarea') {
+    input = document.createElement('textarea');
+    input.className = 'inline-editor'; input.value = t[field] || ''; input.rows = 2;
+  } else {
+    input = document.createElement('input');
+    input.type = 'text'; input.className = 'inline-editor'; input.value = t[field] || '';
+  }
+
+  cell.innerHTML = '';
+  cell.appendChild(input);
+  input.focus();
+  if (input.select) input.select();
+
+  let settled = false;
+
+  async function commit() {
+    if (settled) return; settled = true;
+    document.removeEventListener('mousedown', outsideHandler, true);
+    let newVal;
+    if (cfg.type === 'number') newVal = parseFloat(input.value) || 0;
+    else newVal = input.value.trim();
+    const oldVal = cfg.type === 'number' ? (Number(t[field]) || 0) : (t[field] || '');
+    if (newVal === oldVal) { render(); return; }
+    if (field === 'tarea' && !newVal) { render(); return; }
+    const updated = { ...t, [field]: newVal };
+    lastSavedId = id;
+    await mutate({ action: 'save', task: updated, version: t.version });
+  }
+  function cancel() {
+    if (settled) return; settled = true;
+    document.removeEventListener('mousedown', outsideHandler, true);
+    render();
+  }
+  function outsideHandler(e) {
+    if (!cell.contains(e.target)) commit();
+  }
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && cfg.type !== 'textarea') { e.preventDefault(); commit(); }
+    else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+  });
+  if (cfg.type === 'select') input.addEventListener('change', commit);
+  else input.addEventListener('blur', () => setTimeout(commit, 100));
+
+  setTimeout(() => document.addEventListener('mousedown', outsideHandler, true), 0);
+  activeEditor = { cleanup: cancel };
+}
+
+/* --- Asignación de personas (popover) --- */
+function openAssignPopover(id, anchorEl) {
+  if (busy) return;
+  closeInlineEditor();
+  const t = tasks.find(x => x.id === id);
+  if (!t) return;
+  const selected = new Set(peopleList(t));
+  const allPeople = Array.from(new Set([...TEAM, ...peopleList(t)]));
+
+  const pop = document.createElement('div');
+  pop.className = 'assign-pop';
+  pop.innerHTML = allPeople.map(p => `
+    <label class="assign-opt">
+      <input type="checkbox" value="${escapeHtml(p)}" ${selected.has(p) ? 'checked' : ''}>
+      <span class="avatar" style="background:${colorForName(p)}">${initials(p)}</span>
+      <span>${escapeHtml(p)}</span>
+    </label>
+  `).join('') + `
+    <div class="assign-add-row">
+      <input type="text" class="assign-add-input" placeholder="Agregar persona y Enter...">
+    </div>
+  `;
+  document.body.appendChild(pop);
+  const rect = anchorEl.getBoundingClientRect();
+  pop.style.top = (rect.bottom + 6) + 'px';
+  pop.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - 210)) + 'px';
+
+  let settled = false;
+  async function commitAssign() {
+    if (settled) return; settled = true;
+    document.removeEventListener('mousedown', outside, true);
+    const checked = Array.from(pop.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
+    pop.remove();
+    const newVal = checked.join(', ');
+    if (newVal === (t.responsable || '')) return;
+    const updated = { ...t, responsable: newVal };
+    lastSavedId = id;
+    await mutate({ action: 'save', task: updated, version: t.version });
+  }
+  function outside(e) { if (!pop.contains(e.target) && e.target !== anchorEl) commitAssign(); }
+
+  pop.querySelector('.assign-add-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const val = e.target.value.trim();
+      if (val) {
+        const label = document.createElement('label');
+        label.className = 'assign-opt';
+        label.innerHTML = `<input type="checkbox" value="${escapeHtml(val)}" checked><span class="avatar" style="background:${colorForName(val)}">${initials(val)}</span><span>${escapeHtml(val)}</span>`;
+        pop.insertBefore(label, pop.querySelector('.assign-add-row'));
+        e.target.value = '';
+      }
+    } else if (e.key === 'Escape') {
+      settled = true;
+      document.removeEventListener('mousedown', outside, true);
+      pop.remove();
+    }
+  });
+
+  setTimeout(() => document.addEventListener('mousedown', outside, true), 0);
+  activeEditor = { cleanup: () => { if (!settled) { settled = true; document.removeEventListener('mousedown', outside, true); pop.remove(); } } };
+}
+
 function openModal(task) {
   if (busy) return;
   editingVersion = task ? task.version : '';
@@ -839,7 +1122,10 @@ function openModal(task) {
   document.getElementById('f_desc').value = task ? task.desc : '';
   document.getElementById('f_modulo').value = task ? task.modulo : '';
   document.getElementById('f_tipo').value = task ? task.tipo : '';
-  document.getElementById('f_resp').value = task ? task.responsable : '';
+  const selectedPeople = task ? peopleList(task) : [];
+  document.querySelectorAll('#f_resp_group input[type=checkbox]').forEach(cb => {
+    cb.checked = selectedPeople.includes(cb.value);
+  });
   document.getElementById('f_prior').value = task ? task.prioridad : '';
   document.getElementById('f_estado').value = task ? task.estado : '';
   document.getElementById('f_sprint').value = task ? task.sprint : '';
@@ -868,11 +1154,21 @@ window.deleteTask = async function(id) {
   const task = tasks.find(t => t.id === id);
   if (task) await mutate({action:'delete', id, version:task.version});
 };
+
 document.getElementById('tableBody').addEventListener('click', e => {
   const button = e.target.closest('button');
-  if (button?.dataset.edit) editTask(button.dataset.edit);
-  if (button?.dataset.delete) deleteTask(button.dataset.delete);
+  if (button?.dataset.edit) { editTask(button.dataset.edit); return; }
+  if (button?.dataset.delete) { deleteTask(button.dataset.delete); return; }
+
+  const assignCell = e.target.closest('.assign-cell');
+  if (assignCell) { openAssignPopover(assignCell.dataset.assign, assignCell); return; }
+
+  const editable = e.target.closest('.editable-cell');
+  if (editable && !editable.querySelector('.inline-editor')) {
+    startFieldEdit(editable, editable.dataset.id, editable.dataset.field);
+  }
 });
+
 document.getElementById('refreshTasks').addEventListener('click', loadTasks);
 
 document.getElementById('openAdd').addEventListener('click', () => openModal(null));
@@ -887,7 +1183,7 @@ form.addEventListener('submit', async (e) => {
     desc: document.getElementById('f_desc').value.trim(),
     modulo: document.getElementById('f_modulo').value,
     tipo: document.getElementById('f_tipo').value,
-    responsable: document.getElementById('f_resp').value,
+    responsable: Array.from(document.querySelectorAll('#f_resp_group input[type=checkbox]:checked')).map(cb => cb.value).join(', '),
     prioridad: document.getElementById('f_prior').value,
     estado: document.getElementById('f_estado').value,
     sprint: document.getElementById('f_sprint').value.trim(),
